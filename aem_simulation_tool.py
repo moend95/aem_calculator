@@ -103,33 +103,82 @@ else:
     st.stop()
 
 # ============================================================================
-# 2. UPLOAD POWER LOAD CURVE
+# 2. POWER LOAD CURVE: upload or use test data
 # ============================================================================
 
-st.header("📂 1. Upload Power Load Curve")
-uploaded_file = st.file_uploader(
-    "CSV file with power load curve (columns: timestamp, power_W)",
-    type=['csv']
+st.header("📂 1. Power Load Curve")
+
+data_choice = st.radio(
+    "Choose input source:",
+    ("Use test data (pv_load_curve_3days.csv)", "Upload my CSV file")
 )
 
-if uploaded_file is not None:
-    # Read CSV
-    df_load = pd.read_csv(uploaded_file, sep=',', decimal='.')
-    
-    st.success(f"✅ File loaded: {len(df_load)} time steps")
-    
-    # Preview
-    with st.expander("🔍 Data Preview"):
-        st.dataframe(df_load.head(10))
-    
-    # Check columns
+
+@st.cache_data
+def load_test_load_curve():
+    """Load the bundled test load curve CSV if available."""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_paths = [
+            os.path.join(script_dir, "pv_load_curve_3days.csv"),
+            os.path.join(os.path.dirname(script_dir), "pv_load_curve_3days.csv"),
+            "pv_load_curve_3days.csv",
+        ]
+        csv_path = None
+        for p in possible_paths:
+            if os.path.exists(p):
+                csv_path = p
+                break
+        if csv_path is None:
+            raise FileNotFoundError("pv_load_curve_3days.csv not found in expected locations.")
+        df = pd.read_csv(csv_path, sep=',', decimal='.')
+        return df
+    except Exception as e:
+        st.error(f"Error loading test load curve: {e}")
+        return None
+
+
+df_load = None
+power_col = None
+
+if data_choice.startswith("Use test"):
+    df_load = load_test_load_curve()
+    if df_load is not None:
+        st.success(f"✅ Test data loaded: {len(df_load)} time steps")
+        with st.expander("🔍 Data Preview (test data)"):
+            st.dataframe(df_load.head(10))
+    else:
+        st.error("❌ Test data could not be loaded. You can try uploading a file.")
+
+else:
+    uploaded_file = st.file_uploader(
+        "CSV file with power load curve (columns: timestamp, power_W or Power [W])",
+        type=['csv']
+    )
+    if uploaded_file is not None:
+        df_load = pd.read_csv(uploaded_file, sep=',', decimal='.')
+        st.success(f"✅ File loaded: {len(df_load)} time steps")
+        with st.expander("🔍 Data Preview"):
+            st.dataframe(df_load.head(10))
+
+# If we have a dataframe, determine power column and continue
+if df_load is not None:
     if 'power_W' in df_load.columns:
         power_col = 'power_W'
     elif 'Power [W]' in df_load.columns:
         power_col = 'Power [W]'
     else:
-        st.error("❌ Column 'power_W' or 'Power [W]' not found!")
+        st.error("❌ Column 'power_W' or 'Power [W]' not found in the selected data!")
         st.stop()
+
+    # ========================================================================
+    # 3. CALCULATION: Interpolation
+    # ========================================================================
+    
+    st.header("⚙️ 2. H2 Production Calculation")
+    
+    # Maximum power limit
+    MAX_POWER_W = 1400
     
     # ========================================================================
     # 3. CALCULATION: Interpolation
